@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import sys
+from dataclasses import fields
 from importlib.metadata import version as get_version
 from pathlib import Path
 from typing import Final, cast
@@ -39,6 +40,12 @@ from smpmgr.common import (
 from smpmgr.image_management import ImageFormat, ImageFormatOption, upload_with_progress_bar
 from smpmgr.logging import LogLevel, setup_logging
 from smpmgr.plugins import get_plugins
+from smpmgr.transport.socketcan_isotp import DEFAULT_BLOCKSIZE as CAN_DEFAULT_BLOCKSIZE
+from smpmgr.transport.socketcan_isotp import DEFAULT_RX_ID as CAN_DEFAULT_RX_ID
+from smpmgr.transport.socketcan_isotp import DEFAULT_STMIN as CAN_DEFAULT_STMIN
+from smpmgr.transport.socketcan_isotp import DEFAULT_TX_DL as CAN_DEFAULT_TX_DL
+from smpmgr.transport.socketcan_isotp import DEFAULT_TX_ID as CAN_DEFAULT_TX_ID
+from smpmgr.transport.socketcan_isotp import DEFAULT_WFTMAX as CAN_DEFAULT_WFTMAX
 from smpmgr.user import intercreate
 
 logger = logging.getLogger(__name__)
@@ -88,6 +95,10 @@ def options(
         None, help="The serial port to connect to, e.g. COM1, /dev/ttyACM0, etc."
     ),
     ble: str = typer.Option(None, help="The Bluetooth address to connect to"),
+    can: str = typer.Option(
+        None,
+        help="The SocketCAN interface for ISO-TP transport, e.g. can0, vcan0 (Linux only)",
+    ),
     timeout: float = typer.Option(
         2.0, help="Transport timeout in seconds; how long to wait for requests"
     ),
@@ -126,6 +137,52 @@ def options(
             f" Default of None will use {DEFAULT_LINE_BUFFERS}."
         ),
     ),
+    can_tx_id: int = typer.Option(
+        CAN_DEFAULT_TX_ID,
+        help=(
+            "ISO-TP transport TX CAN ID (client -> server)."
+            " Must match the server's MCUMGR_TRANSPORT_ISOTP_RX_ID."
+        ),
+    ),
+    can_rx_id: int = typer.Option(
+        CAN_DEFAULT_RX_ID,
+        help=(
+            "ISO-TP transport RX CAN ID (server -> client)."
+            " Must match the server's MCUMGR_TRANSPORT_ISOTP_TX_ID."
+        ),
+    ),
+    can_extended_id: bool = typer.Option(
+        False,
+        help="Use 29-bit (extended) CAN IDs for the ISO-TP transport.",
+    ),
+    can_fd: bool = typer.Option(
+        False,
+        help="Use CAN FD frames for the ISO-TP transport.",
+    ),
+    can_tx_dl: int = typer.Option(
+        CAN_DEFAULT_TX_DL,
+        help=(
+            "ISO-TP CAN FD transmit data length (TX_DL): bytes per frame the client sends."
+            " One of 8, 12, 16, 20, 24, 32, 48, 64. Only used with --can-fd; ignored for"
+            " classic CAN (always 8). Larger values raise upload throughput."
+        ),
+    ),
+    can_blocksize: int = typer.Option(
+        CAN_DEFAULT_BLOCKSIZE,
+        help="ISO-TP flow control block size (BS) for the ISO-TP transport.",
+    ),
+    can_stmin: int = typer.Option(
+        CAN_DEFAULT_STMIN,
+        help="ISO-TP flow control minimum separation time (STmin) for the ISO-TP transport.",
+    ),
+    can_wftmax: int = typer.Option(
+        CAN_DEFAULT_WFTMAX,
+        help=(
+            "Max consecutive ISO-TP 'Wait' flow-control frames to tolerate from the server"
+            " before aborting. Must be > 0; the server sends these under RX-buffer pressure"
+            " (up to its CONFIG_ISOTP_WFTMAX). Set 0 only to reject any wait."
+        ),
+    ),
     loglevel: LogLevel = typer.Option(None, help="Debug log level"),
     logfile: Path = typer.Option(None, help="Log file path"),
     version: Annotated[bool, typer.Option("--version", help="Show the version and exit.")] = False,
@@ -146,11 +203,19 @@ def options(
 
     ctx.obj = Options(
         timeout=timeout,
-        transport=TransportDefinition(port=port, ble=ble, ip=ip),
+        transport=TransportDefinition(port=port, ble=ble, ip=ip, can=can),
         mtu=mtu,
         baudrate=baudrate,
         line_length=line_length,
         line_buffers=line_buffers,
+        can_tx_id=can_tx_id,
+        can_rx_id=can_rx_id,
+        can_extended_id=can_extended_id,
+        can_fd=can_fd,
+        can_tx_dl=can_tx_dl,
+        can_blocksize=can_blocksize,
+        can_stmin=can_stmin,
+        can_wftmax=can_wftmax,
     )
     logger.info(ctx.obj)
 
@@ -160,8 +225,15 @@ def options(
         print("A command is required, see [bold]--help[/bold] for available commands.")
         raise typer.Exit()
 
-    # TODO: type of transport is inferred from the argument given (--port, --ble, --usb, etc), but
-    # it must be the case that only one is provided.
+    # The transport is inferred from the selector given (--port, --ble, --ip, --can);
+    # exactly one must be provided.
+    selected = [f.name for f in fields(ctx.obj.transport) if getattr(ctx.obj.transport, f.name)]
+    if len(selected) > 1:
+        print(
+            "Only one transport may be selected, but got: "
+            f"[bold]{', '.join('--' + name for name in selected)}[/bold]."
+        )
+        raise typer.Exit(code=1)
 
 
 @app.command()

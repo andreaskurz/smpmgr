@@ -1,13 +1,56 @@
 # Simple Management Protocol (SMP) Manager
 
 `smpmgr` is a CLI application for interacting with device firmware over a
-**serial (UART or USB)**, **Bluetooth (BLE)**, or **UDP**, connection.  It can be used as a
+**serial (UART or USB)**, **Bluetooth (BLE)**, **UDP**, or
+**ISO-TP over CAN (Linux SocketCAN)** connection.  It can be used as a
 reference implementation of the [smp](https://github.com/JPHutchins/smp) and
 [smpclient](https://github.com/intercreate/smpclient) libraries when developing your own SMP
 application.
 
 The SMP specification can be found
 [here](https://docs.zephyrproject.org/latest/services/device_mgmt/smp_protocol.html).
+
+## CAN / ISO-TP transport (Linux)
+
+`smpmgr` can talk to a Zephyr SMP server built with
+`CONFIG_MCUMGR_TRANSPORT_ISOTP` over CAN using Linux SocketCAN and ISO-TP
+(ISO 15765-2).  This transport is **Linux only** and requires the optional
+`can` extra, which pulls in [`python-can`](https://pypi.org/project/python-can/)
+and [`can-isotp`](https://pypi.org/project/can-isotp/):
+
+```
+pip install "smpmgr[can]"      # or: poetry install --extras can
+```
+
+Bring up a CAN interface, then select it with `--can`:
+
+```
+# Virtual CAN (for testing, e.g. against a native_sim server)
+sudo modprobe vcan
+sudo ip link add dev vcan0 type vcan
+sudo ip link set up vcan0
+smpmgr --can vcan0 os echo hello
+
+# Real CAN hardware
+sudo ip link set can0 type can bitrate 250000
+sudo ip link set up can0
+smpmgr --can can0 image upgrade build/zephyr/zephyr.signed.bin
+```
+
+The Zephyr ISO-TP transport uses ISO 15765-2 normal addressing with **two** CAN
+identifiers, one for each direction. Each peer sends its data frames and its
+flow-control frames on the same identifier. `smpmgr` uses the defaults of the
+Zephyr server, with TX and RX swapped for the client:
+
+| `smpmgr` option | Default | Must match server |
+|---|---|---|
+| `--can-tx-id` (data and flow control, client → server) | `0x80` | `CONFIG_MCUMGR_TRANSPORT_ISOTP_RX_ID` |
+| `--can-rx-id` (data and flow control, server → client) | `0x180` | `CONFIG_MCUMGR_TRANSPORT_ISOTP_TX_ID` |
+
+The TX identifier of the client must be equal to the RX identifier of the
+server, and the opposite. Extended (29-bit) IDs, CAN FD, and the ISO-TP
+flow-control block size / STmin can be tuned with `--can-extended-id`,
+`--can-fd`, `--can-blocksize`, and `--can-stmin`.
 
 ## Install
 

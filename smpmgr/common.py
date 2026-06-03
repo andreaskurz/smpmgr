@@ -28,6 +28,7 @@ class TransportDefinition:
     port: str | None
     ble: str | None
     ip: str | None
+    can: str | None
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,14 @@ class Options:
     baudrate: int | None
     line_length: int | None
     line_buffers: int | None
+    can_tx_id: int
+    can_rx_id: int
+    can_extended_id: bool
+    can_fd: bool
+    can_tx_dl: int
+    can_blocksize: int
+    can_stmin: int
+    can_wftmax: int
 
 
 DEFAULT_LINE_LENGTH: Final = 128
@@ -111,6 +120,30 @@ def get_custom_smpclient(options: Options, smp_client_cls: Type[TSMPClient]) -> 
             )
         else:
             return smp_client_cls(SMPUDPTransport(), options.transport.ip, options.timeout)
+    elif options.transport.can is not None:
+        logger.info(
+            f"Initializing SMPClient with the SMPSocketCANTransport, {options.transport.can=}"
+        )
+        # Imported lazily so that the optional `can`/`isotp` dependencies are
+        # only required when the ISO-TP transport is actually used.
+        from smpmgr.transport.socketcan_isotp import (
+            DEFAULT_MAX_MSG_SIZE,
+            SMPSocketCANTransport,
+            SocketCANISOTPConfig,
+        )
+
+        config = SocketCANISOTPConfig(
+            tx_id=options.can_tx_id,
+            rx_id=options.can_rx_id,
+            extended_id=options.can_extended_id,
+            can_fd=options.can_fd,
+            tx_data_length=options.can_tx_dl,
+            blocksize=options.can_blocksize,
+            stmin=options.can_stmin,
+            wftmax=options.can_wftmax,
+            max_msg_size=options.mtu if options.mtu is not None else DEFAULT_MAX_MSG_SIZE,
+        )
+        return smp_client_cls(SMPSocketCANTransport(config), options.transport.can, options.timeout)
     else:
         typer.echo(
             f"A transport option is required; "
@@ -142,6 +175,13 @@ async def connect_with_spinner(smpclient: SMPClient) -> None:
             logger.error("Transport error: connection timeout")
         except SerialException as e:
             logger.error(f"Serial transport error: {e.__class__.__name__} - {e}")
+        except RuntimeError as e:
+            # Raised by the ISO-TP/SocketCAN transport for unsupported platforms
+            # or missing optional dependencies (the `can` extra).
+            logger.error(str(e))
+        except OSError as e:
+            # e.g. the SocketCAN interface does not exist or is down.
+            logger.error(f"Transport error: {e.__class__.__name__} - {e}")
 
         progress.update(
             connect_task, description=f"{connect_task_description} error", completed=True
