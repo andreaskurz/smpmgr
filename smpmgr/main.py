@@ -246,8 +246,6 @@ def upgrade(
         typer.Option(
             "--confirm",
             help="Permanently confirm the image (prevent revert/rollback). "
-            "Without this flag (default): the image is marked for test swap, and MCUboot will "
-            "revert to the previous image if the new image fails to boot or is not confirmed. "
             "With this flag: the image is immediately marked as permanent, bypassing MCUboot's "
             "test/revert safety mechanism. "
             "[red]WARNING[/red]: Using --confirm skips the test boot and can brick your device. "
@@ -263,9 +261,33 @@ def upgrade(
             "(or some other mechanism).",
         ),
     ] = False,
+    test: Annotated[
+        bool,
+        typer.Option(
+            "--test",
+            help="Mark the uploaded image for test swap (confirm=False) before reset. "
+            "Use this for slot 0 (the default image): without --test or --confirm, smpmgr "
+            "only uploads and resets and does NOT arm a swap, so an MCUboot swap-mode target "
+            "will boot the previous image again. With --test, MCUboot swaps to the new image "
+            "on the next boot and will revert to the previous image on the following reset "
+            "unless it is confirmed (e.g. via 'smpmgr image state-write --confirm' or "
+            "boot_write_img_confirmed() in the application). "
+            "Mutually exclusive with --confirm. "
+            "For slot != 0 this is already the default behavior.",
+        ),
+    ] = False,
     format: ImageFormatOption = ImageFormat.MCUBOOT,
 ) -> None:
-    """Upload a FW image, mark it for next boot, and reset the device."""
+    """Upload a FW image, mark it for next boot, and reset the device.
+
+    For slot != 0, the image is always marked for test swap before reset. For slot 0,
+    pass --test to arm a test swap or --confirm to mark the image as permanent; with
+    neither flag, the image is only uploaded (no swap is armed).
+    """
+
+    if test and confirm:
+        print("[red]--test and --confirm are mutually exclusive.[/red]")
+        raise typer.Exit(code=1)
 
     image_tlv_sha256: ImageTLVValue | None = None
 
@@ -305,7 +327,7 @@ def upgrade(
         with open(file, "rb") as f:
             await upload_with_progress_bar(smpclient, f, slot)
 
-        if slot != 0 or confirm:
+        if slot != 0 or confirm or test:
             match format:
                 case ImageFormat.MCUBOOT:
                     assert image_tlv_sha256 is not None
