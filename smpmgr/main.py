@@ -50,6 +50,26 @@ from smpmgr.user import intercreate
 
 logger = logging.getLogger(__name__)
 
+
+def parse_can_id(value: int | str) -> int:
+    """Parse a CAN ID accepting decimal or prefixed integers (e.g. ``0x80``, ``0o200``).
+
+    Used as the ``parser`` for the ``--can-*-id`` options so IDs can be given in the
+    same hex notation used by the server's devicetree/Kconfig. ``int(value, 0)`` infers
+    the base from the prefix (``0x``/``0o``/``0b``) and falls back to decimal. Typer may
+    pass the (already ``int``) default through the parser, which is returned as-is.
+    """
+    if isinstance(value, int):
+        return value
+    try:
+        return int(value, 0)
+    except ValueError:
+        raise typer.BadParameter(
+            f"'{value}' is not a valid CAN ID;"
+            " use a decimal (128) or 0x-prefixed hex (0x80) integer"
+        )
+
+
 # Intercept and modify sys.argv to look for plugins
 plugins: Final = get_plugins(sys.argv)
 
@@ -139,16 +159,20 @@ def options(
     ),
     can_tx_id: int = typer.Option(
         CAN_DEFAULT_TX_ID,
+        parser=parse_can_id,
         help=(
             "ISO-TP transport TX CAN ID (client -> server)."
             " Must match the server's MCUMGR_TRANSPORT_ISOTP_RX_ID."
+            " Accepts decimal or 0x-prefixed hex (e.g. 0x80)."
         ),
     ),
     can_rx_id: int = typer.Option(
         CAN_DEFAULT_RX_ID,
+        parser=parse_can_id,
         help=(
             "ISO-TP transport RX CAN ID (server -> client)."
             " Must match the server's MCUMGR_TRANSPORT_ISOTP_TX_ID."
+            " Accepts decimal or 0x-prefixed hex (e.g. 0x180)."
         ),
     ),
     can_extended_id: bool = typer.Option(

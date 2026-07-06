@@ -18,7 +18,9 @@ from enum import Enum
 from unittest.mock import MagicMock
 
 import pytest
+import typer
 
+from smpmgr.main import parse_can_id
 from smpmgr.transport.socketcan_isotp import (
     DEFAULT_RX_ID,
     DEFAULT_TX_ID,
@@ -237,6 +239,14 @@ def test_default_ids() -> None:
     cfg = SocketCANISOTPConfig()
     # Mirror of the Zephyr server defaults.
     assert (cfg.tx_id, cfg.rx_id) == (0x80, 0x180)
+
+
+def test_parse_can_id_accepts_hex_and_decimal() -> None:
+    assert parse_can_id("0x80") == 0x80
+    assert parse_can_id("384") == 384
+    assert parse_can_id(0x180) == 0x180
+    with pytest.raises(typer.BadParameter):
+        parse_can_id("can0")
 
 
 def test_mtu_and_max_unencoded_size() -> None:

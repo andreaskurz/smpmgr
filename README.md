@@ -48,9 +48,10 @@ Zephyr server, with TX and RX swapped for the client:
 | `--can-rx-id` (data and flow control, server → client) | `0x180` | `CONFIG_MCUMGR_TRANSPORT_ISOTP_TX_ID` |
 
 The TX identifier of the client must be equal to the RX identifier of the
-server, and the opposite. Extended (29-bit) IDs, CAN FD, and the ISO-TP
-flow-control block size / STmin can be tuned with `--can-extended-id`,
-`--can-fd`, `--can-blocksize`, and `--can-stmin`.
+server, and the opposite. Both options accept decimal (`128`) or hexadecimal
+(`0x80`) values. Extended (29-bit) IDs, CAN FD, and the ISO-TP flow-control
+block size / STmin can be tuned with `--can-extended-id`, `--can-fd`,
+`--can-blocksize`, and `--can-stmin`.
 
 ## Install
 
